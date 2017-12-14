@@ -10,12 +10,21 @@ public class SetupLocalPlayer : NetworkBehaviour {
 	public Transform namePos;
 	string textboxname = "";
 	string colourboxname = "";
+	public Slider healthPrefab;
+	public Slider health;
+	public GameObject explosion;
+	NetworkStartPosition[] spawnPos;
 
-	[SyncVar (hook = "OnChangeName")]
-	public string pName = "player";
+	[SyncVar (hook = "OnChangeName")] public string pName = "player";
+	[SyncVar (hook = "OnChangeColour")]	public string pColour = "#ffffff";
+	[SyncVar (hook = "OnChangeHealth")] public int healthValue = 100;
 
-	[SyncVar (hook = "OnChangeColour")]
-	public string pColour = "#ffffff";
+	void OnChangeHealth(int n)
+	{
+		healthValue = n;
+		health.value = healthValue; 
+		Debug.Log("on change health");
+	}
 
     void OnChangeName (string n)
     {
@@ -35,16 +44,22 @@ public class SetupLocalPlayer : NetworkBehaviour {
         }
     }
 
+	[ClientRpc] public void RpcRespawn()
+	{
+		if(!isLocalPlayer) return;
+		if(spawnPos != null & spawnPos.Length > 0) 
+		{
+			this.transform.position = spawnPos[Random.Range(0, spawnPos.Length)].transform.position;
+		}
+	}
 
-	[Command]
-	public void CmdChangeName(string newName)
+	[Command] public void CmdChangeName(string newName)
 	{
 		pName = newName;
 		nameLabel.text = pName;
 	}
 
-	[Command]
-	public void CmdChangeColour(string newColour)
+	[Command] public void CmdChangeColour(string newColour)
 	{
 		pColour = newColour;
 		Renderer[] rends = GetComponentsInChildren<Renderer>( );
@@ -54,6 +69,21 @@ public class SetupLocalPlayer : NetworkBehaviour {
          	if(r.gameObject.name == "BODY")
             	r.material.SetColor("_Color", ColorFromHex(pColour));
         }
+	}
+
+	[Command] public void CmdChangeHealth(int hitValue) 
+	{
+		healthValue = healthValue + hitValue;
+		health.value = healthValue;
+		
+		if(health.value <= 0)
+		{
+			GameObject e = Instantiate(explosion, this.transform.position, Quaternion.identity);
+			NetworkServer.Spawn(e);
+			this.GetComponent<Rigidbody>().velocity = Vector3.zero; 
+			RpcRespawn();
+			healthValue = 100; 
+		}
 	}
 
 	void OnGUI()
@@ -104,12 +134,26 @@ public class SetupLocalPlayer : NetworkBehaviour {
 		GameObject canvas = GameObject.FindWithTag("MainCanvas");
 		nameLabel = Instantiate(namePrefab, Vector3.zero, Quaternion.identity) as Text;
 		nameLabel.transform.SetParent(canvas.transform);
+
+		health = Instantiate(healthPrefab, Vector3.zero, Quaternion.identity) as Slider;
+		health.transform.SetParent(canvas.transform);
+		
+		spawnPos = FindObjectsOfType<NetworkStartPosition>();
 	}
 
 	public void OnDestroy()
 	{
-		if(nameLabel != null)
+		if(nameLabel != null && health != null)
 			Destroy(nameLabel.gameObject);
+			Destroy(health.gameObject); 
+	}
+
+	void OnCollisionEnter(Collision collision) 
+	{
+		if(isLocalPlayer && collision.gameObject.tag == "bullet")
+		{
+			CmdChangeHealth(-5);
+		}
 	}
 
 	void Update()
@@ -125,9 +169,14 @@ public class SetupLocalPlayer : NetworkBehaviour {
 			{
 				Vector3 nameLabelPos = Camera.main.WorldToScreenPoint(namePos.position);
 				nameLabel.transform.position = nameLabelPos;
+				health.transform.position = nameLabelPos + new Vector3(0, 15, 0);
 			}
-			else //otherwise draw it WAY off the screen 
+			else //otherwise draw it WAY off the screen
+			{
 				nameLabel.transform.position = new Vector3(-1000,-1000,0);
+				nameLabel.transform.position = new Vector3(-1000,-1000,0);
+			}
+				
 		}
 	}
 }
